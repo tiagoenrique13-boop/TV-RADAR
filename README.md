@@ -1,17 +1,19 @@
-# TV Radar 65 — MVP
+# TV Radar 65 — versão simples
 
-Aplicação PWA para acompanhar preços de TVs de 65 polegadas.
+Projeto pessoal para acompanhar preços de TVs de 65 polegadas.
 
-## Estado do MVP
-- Interface responsiva para celular.
-- Catálogo inicial LG, Samsung e TCL.
-- Metas de preço configuráveis.
-- Registro manual de preço, frete, loja, vendedor e link.
-- Ranking do menor preço **registrado**.
-- Preparado para deploy automático no GitHub Pages.
-- Manifesto PWA e service worker básico.
+## O que faz
+- Catálogo inicial de modelos TCL, LG e Samsung.
+- Registro manual do preço, loja e link da oferta.
+- Classificação conforme os preços-alvo definidos.
+- Ranking dos preços que você registrou.
+- Histórico local no navegador.
+- Layout adaptado para celular.
 
-**Importante:** esta versão não coleta preços automaticamente, não envia alertas Telegram e não sincroniza dados entre familiares. Os registros ficam apenas no estado local da sessão; persistência e compartilhamento entram na próxima etapa. Não trate os preços de demonstração de conversas anteriores como preços atuais.
+## Importante
+Esta versão **não consulta lojas automaticamente e não envia alertas**. Ela é propositalmente simples: você registra os preços encontrados e acompanha a evolução. Os dados ficam salvos no navegador/aparelho em que foram registrados.
+
+Os alvos são referências iniciais editáveis no código, não garantias de preço justo. Antes de comprar, confira SKU completo, vendedor, frete, cupom, nota fiscal e histórico no Zoom/Buscapé.
 
 ## Rodar localmente
 Requer Node.js 20+.
@@ -22,21 +24,7 @@ npm run dev
 ```
 
 ## Publicar no GitHub Pages
-1. Crie um repositório público chamado `tv-radar-65`.
-2. Envie todo o conteúdo desta pasta para a branch `main`.
-3. No GitHub, abra **Settings → Pages**.
-4. Em **Build and deployment**, escolha **GitHub Actions**.
-5. Acesse **Actions** e acompanhe `Deploy TV Radar 65`.
-6. A URL será `https://SEU-USUARIO.github.io/tv-radar-65/`.
-
-O workflow `.github/workflows/deploy.yml` compila e publica automaticamente a cada push em `main`.
-
-## Acesso da família
-GitHub Pages em repositório público publica o site para qualquer pessoa com o endereço. Não há login familiar nesta primeira versão. Para restringir o acesso ou sincronizar usuários, será necessário adicionar autenticação e banco de dados (por exemplo Supabase) e hospedar a camada privada em serviço compatível.
-
-## Próximas etapas
-1. Supabase: autenticação familiar e tabela de observações de preço.
-2. Coletor: fontes autorizadas/API/feeds; não depender de scraping frágil.
-3. Telegram: bot + `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` armazenados como GitHub Actions Secrets (nunca no código).
-4. Rotina agendada e deduplicação de alertas.
-5. Gráficos de histórico com dados coletados e origem rastreável.
+1. Envie o conteúdo desta pasta para a raiz do repositório `TV-RADAR`, branch `main`.
+2. Em **Settings → Pages**, selecione **GitHub Actions** em Build and deployment.
+3. O workflow `Deploy TV Radar` fará o build e a publicação a cada push na branch `main`.
+4. O endereço será `https://tiagoenrique13-boop.github.io/TV-RADAR/`.
