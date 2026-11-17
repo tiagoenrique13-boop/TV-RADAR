@@ -1,6 +1,5 @@
 
-name: Testar cobertura Pechincha.ai
-
+name: Testar cobertura Pechincha.ai - TV Radar
 on:
   workflow_dispatch:
 
@@ -11,80 +10,201 @@ jobs:
   search:
     runs-on: ubuntu-latest
     steps:
-      - name: Buscar modelos do TV Radar
+      - name: Buscar e filtrar TVs de 65 polegadas
         run: |
           python - <<'PY'
           import json
+          import re
           import urllib.request
 
           URL = "https://pechincha.ai/mcp"
           HEADERS = {
               "Content-Type": "application/json",
               "Accept": "application/json, text/event-stream",
-              "User-Agent": "TV-Radar-65/1.0"
+              "User-Agent": "TV-Radar-65/1.1"
           }
 
           def call(payload, sid=None):
-              h = dict(HEADERS)
+              headers = dict(HEADERS)
               if sid:
-                  h["Mcp-Session-Id"] = sid
-              req = urllib.request.Request(URL, data=json.dumps(payload).encode(),
-                                           headers=h, method="POST")
+                  headers["Mcp-Session-Id"] = sid
+
+              req = urllib.request.Request(
+                  URL,
+                  data=json.dumps(payload).encode(),
+                  headers=headers,
+                  method="POST"
+              )
+
               with urllib.request.urlopen(req, timeout=45) as r:
                   body = r.read().decode()
                   sid = r.headers.get("Mcp-Session-Id") or sid
-                  ct = r.headers.get("Content-Type", "")
-              if "text/event-stream" in ct:
-                  vals = []
+                  content_type = r.headers.get("Content-Type", "")
+
+              if "text/event-stream" in content_type:
+                  values = []
                   for line in body.splitlines():
                       if line.startswith("data:"):
                           try:
-                              vals.append(json.loads(line[5:].strip()))
+                              values.append(json.loads(line[5:].strip()))
                           except json.JSONDecodeError:
                               pass
-                  return (vals[-1] if vals else {}), sid
+                  return (values[-1] if values else {}), sid
+
               return (json.loads(body) if body else {}), sid
 
           init, sid = call({
-              "jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "jsonrpc": "2.0",
+              "id": 1,
+              "method": "initialize",
               "params": {
                   "protocolVersion": "2025-11-25",
                   "capabilities": {},
-                  "clientInfo": {"name": "TV-Radar-65", "version": "1.0"}
+                  "clientInfo": {
+                      "name": "TV-Radar-65",
+                      "version": "1.1"
+                  }
               }
           })
-          if init.get("error"):
-              raise RuntimeError(json.dumps(init["error"], ensure_ascii=False))
 
-          call({"jsonrpc": "2.0", "method": "notifications/initialized",
-                "params": {}}, sid)
+          if init.get("error"):
+              raise RuntimeError(json.dumps(init["error"]))
+
+          call({
+              "jsonrpc": "2.0",
+              "method": "notifications/initialized",
+              "params": {}
+          }, sid)
 
           queries = [
-              "TCL C7L", "TCL C7K", "TCL C6K",
-              "LG OLED C5", "LG OLED B5",
-              "Samsung OLED S90", "Samsung OLED S95", "Hisense U8"
+              "TV TCL Mini LED",
+              "TV OLED LG",
+              "TV OLED Samsung",
+              "TV Mini LED Hisense",
+              "TCL C6K",
+              "televisão 65 polegadas"
           ]
 
-          for n, query in enumerate(queries, 2):
-              print("\n" + "=" * 65 + "\nBUSCA: " + query)
-              try:
-                  data, sid = call({
-                      "jsonrpc": "2.0", "id": n, "method": "tools/call",
-                      "params": {"name": "search_deals",
-                                 "arguments": {"query": query, "limit": 10}}
-                  }, sid)
-                  result = data.get("result", data)
-                  structured = result.get("structuredContent")
-                  if structured is not None:
-                      print(json.dumps(structured, ensure_ascii=False, indent=2))
-                  else:
-                      for item in result.get("content", []):
-                          if item.get("type") == "text":
-                              print(item.get("text", ""))
-                      if result.get("isError"):
-                          print("A ferramenta retornou erro.")
-              except Exception as e:
-                  print("ERRO:", type(e).__name__, str(e))
+          # Modelos de referência e tecnologias que queremos investigar.
+          model_terms = [
+              "C7L", "C7K", "C6K",
+              "OLED65B5", "OLED65C5", "OLED65C6",
+              "S90", "S95", "QN90", "QN95",
+              "U8"
+          ]
 
-          print("\nFim da consulta. Validar código exato e tamanho antes de incluir ofertas.")
+          all_deals = {}
+          request_id = 2
+
+          for query in queries:
+              print("\n" + "=" * 65)
+              print("BUSCA:", query)
+
+              page = 1
+              total_pages = 1
+              total_found = 0
+
+              while page <= total_pages:
+                  try:
+                      data, sid = call({
+                          "jsonrpc": "2.0",
+                          "id": request_id,
+                          "method": "tools/call",
+                          "params": {
+                              "name": "search_deals",
+                              "arguments": {
+                                  "query": query,
+                                  "limit": 25,
+                                  "page": page
+                              }
+                          }
+                      }, sid)
+
+                      request_id += 1
+                      result = data.get("result", data)
+                      structured = result.get("structuredContent", {})
+
+                      if not structured:
+                          print("Resposta sem structuredContent:")
+                          print(json.dumps(result, ensure_ascii=False)[:3000])
+                          break
+
+                      deals = structured.get("deals", [])
+                      total_pages = structured.get("pages", 1)
+                      total_found = structured.get("total", 0)
+
+                      print(
+                          f"Página {page}/{total_pages} | "
+                          f"Ofertas encontradas: {total_found}"
+                      )
+
+                      for deal in deals:
+                          title = str(
+                              deal.get("title")
+                              or deal.get("name")
+                              or deal.get("product_name")
+                              or ""
+                          )
+
+                          normalized = title.upper()
+                          has_65 = bool(
+                              re.search(r'(?<!\d)65\s*(?:\"|”|POL|POLEGADAS)?',
+                                        normalized)
+                          )
+
+                          if not has_65:
+                              continue
+
+                          # Excluir monitores, acessórios e resultados
+                          # que não pareçam televisores.
+                          excluded = [
+                              "MONITOR", "CONTROLE REMOTO",
+                              "SUPORTE", "CABO", "CAPA"
+                          ]
+
+                          if any(x in normalized for x in excluded):
+                              continue
+
+                          deal_id = (
+                              deal.get("id")
+                              or deal.get("url")
+                              or title
+                          )
+
+                          all_deals[deal_id] = deal
+
+                  except Exception as e:
+                      print(f"Erro na página {page}: {e}")
+                      break
+
+                  page += 1
+
+          print("\n" + "=" * 65)
+          print("RESULTADO CONSOLIDADO")
+          print("Ofertas únicas de TVs de 65 polegadas:", len(all_deals))
+
+          for deal in all_deals.values():
+              title = str(
+                  deal.get("title")
+                  or deal.get("name")
+                  or deal.get("product_name")
+                  or "Título não identificado"
+              )
+
+              normalized = title.upper()
+              matched = [
+                  model for model in model_terms
+                  if model in normalized
+              ]
+
+              print("\n--------------------------------")
+              print("PRODUTO:", title)
+              print("MODELOS IDENTIFICADOS:", matched or "Validar manualmente")
+              print("PREÇO:", deal.get("price"))
+              print("LOJA:", deal.get("store"))
+              print("PUBLICAÇÃO:", deal.get("published_at") or deal.get("published_date"))
+              print("LINK:", deal.get("url"))
+              print("ID:", deal.get("id"))
+
+          print("\nFim do teste. Preços precisam ser confirmados na loja.")
           PY
