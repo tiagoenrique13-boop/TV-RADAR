@@ -2,7 +2,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Activity, Bell, Check, ChevronDown, ExternalLink, Plus,
-  Search, SlidersHorizontal, Trash2, Tv, TrendingDown, Wallet
+  Search, SlidersHorizontal, Trash2, Tv, TrendingDown, Wallet,
+  Trophy, Star, Zap
 } from 'lucide-react'
 
 const STORAGE_KEY = 'tv-radar-data'
@@ -31,7 +32,6 @@ const dateTime = value => {
   })
 }
 
-// Recupera os dados manuais já salvos neste navegador.
 const loadSavedProducts = () => {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))
@@ -41,8 +41,6 @@ const loadSavedProducts = () => {
   }
 }
 
-// Combina o catálogo novo com os registros manuais existentes.
-// Os campos de preço, loja, link e histórico são preservados.
 const mergeCatalog = (catalog, savedProducts) => {
   const savedById = new Map(
     savedProducts.map(product => [product.id, product])
@@ -63,8 +61,6 @@ const mergeCatalog = (catalog, savedProducts) => {
       }
     })
 
-  // Mantém modelos antigos fora do catálogo ativo para não perder
-  // registros manuais caso sejam necessários novamente.
   const catalogIds = new Set(catalog.map(model => model.id))
 
   const archivedProducts = savedProducts
@@ -160,7 +156,6 @@ export default function App() {
     return new Map(activeProducts.map(product => [product.id, product]))
   }, [activeProducts])
 
-  // Carrega o catálogo externo e combina com os dados locais.
   useEffect(() => {
     let cancelled = false
 
@@ -196,8 +191,6 @@ export default function App() {
     }
   }, [])
 
-  // Salva somente depois de carregar o catálogo.
-  // Evita sobrescrever os dados existentes com uma lista vazia.
   useEffect(() => {
     if (!catalogLoaded) return
 
@@ -209,7 +202,6 @@ export default function App() {
     }
   }, [products, catalogLoaded])
 
-  // Busca o histórico central publicado pelo GitHub Actions.
   useEffect(() => {
     let cancelled = false
 
@@ -271,7 +263,6 @@ export default function App() {
     Number(product.price) <= Number(product.great)
   )
 
-  // Agrupa os snapshots automáticos por modelo.
   const automaticModels = useMemo(() => {
     const groups = {}
 
@@ -312,6 +303,92 @@ export default function App() {
         Number(a.latest.price) - Number(b.latest.price)
       )
   }, [autoData, modelById])
+
+  // Junta ofertas manuais e automáticas por modelo.
+  // Para cada modelo, considera o menor preço disponível.
+  const rankedDeals = useMemo(() => {
+    const deals = new Map()
+
+    activeProducts.forEach(product => {
+      if (Number(product.price) > 0) {
+        deals.set(product.id, {
+          product,
+          price: Number(product.price),
+          store: product.store || 'Registro manual',
+          url: product.url || '',
+          source: 'Manual'
+        })
+      }
+    })
+
+    automaticModels.forEach(model => {
+      if (!model.product) return
+
+      const current = deals.get(model.modelId)
+      const automaticPrice = Number(model.latest.price)
+
+      if (!current || automaticPrice < current.price) {
+        deals.set(model.modelId, {
+          product: model.product,
+          price: automaticPrice,
+          store: model.latest.store || 'Loja não informada',
+          url: model.latest.url || '',
+          source: 'Automático'
+        })
+      }
+    })
+
+    return Array.from(deals.values())
+      .map(deal => {
+        const target = Number(deal.product.target)
+        const great = Number(deal.product.great)
+
+        const discount = target > 0
+          ? ((target - deal.price) / target) * 100
+          : 0
+
+        return {
+          ...deal,
+          target,
+          great,
+          discount,
+          excellent: deal.price <= great,
+          good: deal.price <= target
+        }
+      })
+      .sort((a, b) => a.price - b.price)
+  }, [activeProducts, automaticModels])
+
+  // Ranking financeiro provisório:
+  // prioriza ofertas abaixo do alvo e dá pequeno peso
+  // aos modelos marcados como prioritários no catálogo.
+  const bestValue = useMemo(() => {
+    return rankedDeals
+      .filter(deal => deal.good)
+      .map(deal => ({
+        ...deal,
+        score:
+          deal.discount +
+          (Number(deal.product.priority) === 1 ? 5 : 0)
+      }))
+      .sort((a, b) => b.score - a.score)[0] || null
+  }, [rankedDeals])
+
+  const bestOled = useMemo(() => {
+    return rankedDeals
+      .filter(deal =>
+        (deal.product.technology || deal.product.tech || '')
+          .toLowerCase()
+          .includes('oled')
+      )
+      .sort((a, b) => a.price - b.price)[0] || null
+  }, [rankedDeals])
+
+  const bestOpportunity = useMemo(() => {
+    return rankedDeals
+      .filter(deal => deal.excellent)
+      .sort((a, b) => a.price - b.price)[0] || null
+  }, [rankedDeals])
 
   const update = (id, patch) => {
     setProducts(current =>
@@ -407,6 +484,54 @@ export default function App() {
     })
   }
 
+  const DealCard = ({ title, subtitle, deal, icon: Icon }) => (
+    <article className="automatic-card">
+      <div className="automatic-model">
+        <Icon size={17} /> {title}
+      </div>
+
+      {deal ? (
+        <>
+          <strong className="automatic-price">
+            {money(deal.price)}
+          </strong>
+
+          <h3>{deal.product.name}</h3>
+
+          <div className="automatic-meta">
+            <span>{deal.store}</span>
+            <span>{deal.source}</span>
+          </div>
+
+          <span className={`pill ${
+            deal.excellent ? 'great' : deal.good ? 'good' : 'wait'
+          }`}>
+            {deal.excellent
+              ? 'Preço excelente'
+              : deal.good
+                ? 'Dentro do alvo'
+                : 'Preço registrado'}
+          </span>
+
+          <div className="automatic-meta lowest">
+            <span>Alvo: {money(deal.target)}</span>
+            <b>Excelente: {money(deal.great)}</b>
+          </div>
+
+          {deal.url && (
+            <div className="offer-link">
+              <a href={deal.url} target="_blank" rel="noreferrer">
+                Ver oferta <ExternalLink size={12} />
+              </a>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="automatic-empty">{subtitle}</div>
+      )}
+    </article>
+  )
+
   return (
     <div className="app">
       <header className="top">
@@ -472,9 +597,7 @@ export default function App() {
             <div>
               <div className="eyebrow">COLETA AUTOMÁTICA</div>
               <h2>Monitoramento de ofertas</h2>
-              <p>
-                Ofertas encontradas pelo coletor do TV Radar.
-              </p>
+              <p>Ofertas encontradas pelo coletor do TV Radar.</p>
             </div>
 
             <span className="auto-status">
@@ -496,9 +619,7 @@ export default function App() {
                     className="automatic-card"
                     key={model.modelId}
                   >
-                    <div className="automatic-model">
-                      {modelName}
-                    </div>
+                    <div className="automatic-model">{modelName}</div>
 
                     <strong className="automatic-price">
                       {money(latest.price)}
@@ -515,10 +636,7 @@ export default function App() {
                         product
                       )
                     }`}>
-                      {automaticStatus(
-                        Number(latest.price),
-                        product
-                      )}
+                      {automaticStatus(Number(latest.price), product)}
                     </span>
 
                     {product && (
@@ -741,38 +859,83 @@ export default function App() {
 
         {tab === 'ranking' && (
           <section className="panel">
-            <h2>Ranking dos preços registrados</h2>
+            <div className="eyebrow">RECOMENDAÇÕES DO RADAR</div>
+            <h2>Onde estão as melhores oportunidades?</h2>
             <p className="muted">
-              Preços cadastrados manualmente, ordenados do menor para o maior.
+              Comparação entre preços manuais e automáticos,
+              considerando os alvos cadastrados para cada modelo.
             </p>
 
-            {ranked.length === 0 ? (
+            <div className="automatic-grid recommendation-grid">
+              <DealCard
+                title="Melhor custo-benefício"
+                subtitle="Ainda não há ofertas dentro do preço-alvo."
+                deal={bestValue}
+                icon={Trophy}
+              />
+
+              <DealCard
+                title="Menor preço OLED"
+                subtitle="Ainda não há preços registrados para modelos OLED."
+                deal={bestOled}
+                icon={Star}
+              />
+
+              <DealCard
+                title="Oportunidade excelente"
+                subtitle="Nenhuma oferta atingiu o alvo excelente."
+                deal={bestOpportunity}
+                icon={Zap}
+              />
+            </div>
+
+            <div className="ranking-heading">
+              <h2>Ranking geral de preços</h2>
+              <p className="muted">
+                Melhor preço conhecido por modelo, reunindo as duas fontes.
+              </p>
+            </div>
+
+            {rankedDeals.length === 0 ? (
               <div className="empty">
-                Ainda não há preços. Vá ao Meu radar e registre a primeira oferta.
+                Ainda não há preços. Registre uma oferta ou aguarde
+                a coleta automática.
               </div>
             ) : (
-              ranked.map((product, index) => (
-                <div className="rankrow" key={product.id}>
+              rankedDeals.map((deal, index) => (
+                <div className="rankrow" key={deal.product.id}>
                   <b className="ranknum">
                     {String(index + 1).padStart(2, '0')}
                   </b>
 
                   <div className="rankname">
-                    <strong>{product.name}</strong>
+                    <strong>{deal.product.name}</strong>
                     <small>
-                      {product.store || 'Loja não informada'} ·{' '}
-                      {product.technology || product.tech}
+                      {deal.store} · {deal.product.technology || deal.product.tech}
+                      {' · '}{deal.source}
                     </small>
                   </div>
 
-                  <strong>{money(product.price)}</strong>
+                  <strong>{money(deal.price)}</strong>
 
-                  <span className={`pill ${statusClass(product)}`}>
-                    {status(product)}
+                  <span className={`pill ${
+                    deal.excellent ? 'great' : deal.good ? 'good' : 'wait'
+                  }`}>
+                    {deal.excellent
+                      ? 'Excelente'
+                      : deal.good
+                        ? 'Bom preço'
+                        : 'Acima do alvo'}
                   </span>
                 </div>
               ))
             )}
+
+            <p className="automatic-date">
+              O ranking é financeiro e usa os preços-alvo do catálogo.
+              Não substitui a comparação de especificações, geração,
+              código completo do modelo, garantia e avaliação de imagem.
+            </p>
           </section>
         )}
 
