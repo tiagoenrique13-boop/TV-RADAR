@@ -1,69 +1,43 @@
 
-name: Check TV Prices
+name: Diagnose TCL C7L
 
 on:
   workflow_dispatch:
 
 jobs:
-  prices:
+  diagnose:
     runs-on: ubuntu-latest
     steps:
-      - name: Check selected TVs
+      - name: Inspect product and history
         run: |
           python - <<'PY'
           import json
           import urllib.request
-          import urllib.parse
 
-          products = {
-              "TCL C7L 65": "mercadolivre-MLB74127412",
-              "TCL C7K 65": "mercadolivre-MLB49823182",
-              "TCL C6K 65": "mercadolivre-MLB50368907",
-          }
-
+          product_id = "mercadolivre-MLB74127412"
           base = "https://farejapreco.com.br/api/v1/produtos/"
 
-          for name, product_id in products.items():
-              print("\n===== " + name + " =====")
+          urls = {
+              "PRODUTO": base + product_id,
+              "HISTORICO": base + product_id + "/historico?dias=30"
+          }
 
+          for name, url in urls.items():
+              print("\n===== " + name + " =====")
               try:
-                  url = base + product_id
                   req = urllib.request.Request(
                       url,
                       headers={"User-Agent": "TV-Radar-65/1.0"}
                   )
-
-                  with urllib.request.urlopen(req, timeout=30) as r:
-                      data = json.load(r)
-
-                  fields = [
-                      "id", "product", "brand", "model",
-                      "store", "price_status", "price",
-                      "lowest_price", "lowest_price_store",
-                      "price_checked_at", "verdict",
-                      "lowest_30d", "highest_30d",
-                      "typical_30d", "price_history",
-                      "price_history_url", "product_url"
-                  ]
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      print("HTTP:", response.status)
+                      data = json.load(response)
 
                   print(json.dumps(
-                      {k: data.get(k) for k in fields},
+                      data,
                       ensure_ascii=False,
                       indent=2
-                  ))
-
-                  history_url = data.get("price_history_url")
-
-                  if history_url:
-                      with urllib.request.urlopen(
-                          history_url + "?dias=30", timeout=30
-                      ) as r:
-                          history = json.load(r)
-
-                      print("HISTÓRICO 30 DIAS:")
-                      print(json.dumps(
-                          history, ensure_ascii=False
-                      )[:2500])
+                  )[:12000])
 
               except Exception as e:
                   print("ERRO:", type(e).__name__, str(e))
