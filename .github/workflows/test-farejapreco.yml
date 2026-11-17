@@ -1,0 +1,55 @@
+
+name: Test TV Price Coverage
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check exact TV models
+        run: |
+          python - <<'PY'
+          import json
+          import time
+          import urllib.parse
+          import urllib.request
+
+          models = [
+              "TCL 65C6K",
+              "TCL 65C7K",
+              "TCL 65C7L",
+              "LG 65QNED80",
+              "LG 65QNED70",
+              "LG OLED65B5",
+              "LG OLED65C5",
+              "Samsung QN65S90",
+              "Samsung QN65QN90",
+          ]
+
+          base = "https://farejapreco.com.br/api/v1/produtos"
+
+          for i, model in enumerate(models):
+              if i:
+                  time.sleep(7)
+
+              url = base + "?" + urllib.parse.urlencode({
+                  "q": model, "limite": 5
+              })
+
+              print("\n===== " + model + " =====")
+
+              try:
+                  req = urllib.request.Request(
+                      url,
+                      headers={"User-Agent": "TV-Radar-65/1.0"}
+                  )
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      data = json.load(r)
+
+                  print(json.dumps(data, ensure_ascii=False)[:3500])
+
+              except Exception as e:
+                  print("ERRO:", type(e).__name__, str(e))
+          PY
