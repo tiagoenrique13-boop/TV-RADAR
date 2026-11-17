@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: tv-radar-telegram-alerts
+  cancel-in-progress: false
+
 jobs:
   alerts:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
@@ -22,7 +26,47 @@ jobs:
         with:
           ref: main
 
+      - name: Enviar mensagem de teste
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          token = os.environ["TELEGRAM_BOT_TOKEN"]
+          chat = os.environ["TELEGRAM_CHAT_ID"]
+
+          if not token or not chat:
+              raise RuntimeError("Configure os secrets do Telegram.")
+
+          url = f"https://api.telegram.org/bot{token}/sendMessage"
+          payload = {
+              "chat_id": chat,
+              "text": "✅ TV RADAR 65\n\nIntegração com Telegram funcionando! Este é apenas um teste."
+          }
+
+          request = urllib.request.Request(
+              url,
+              data=json.dumps(payload).encode(),
+              headers={"Content-Type": "application/json"},
+              method="POST"
+          )
+
+          with urllib.request.urlopen(request, timeout=30) as response:
+              result = json.loads(response.read().decode())
+
+          if not result.get("ok"):
+              raise RuntimeError("O Telegram não confirmou o envio.")
+
+          print("Mensagem de teste enviada com sucesso.")
+          PY
+
       - name: Avaliar ofertas e enviar alertas
+        if: github.event_name == 'workflow_run'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -36,6 +80,9 @@ jobs:
           token = os.environ["TELEGRAM_BOT_TOKEN"]
           chat = os.environ["TELEGRAM_CHAT_ID"]
 
+          if not token or not chat:
+              raise RuntimeError("Configure os secrets do Telegram.")
+
           history = json.loads(
               Path("public/data/price-history.json").read_text()
           )
@@ -43,51 +90,58 @@ jobs:
               Path("public/data/models.json").read_text()
           )
 
-          models = {m["id"]: m for m in catalog["models"]}
-          state_file = Path(".github/tv-radar-alert-state.json")
+          models = {
+              m["id"]: m for m in catalog["models"]
+              if m.get("active", True)
+          }
 
+          state_file = Path(".github/tv-radar-alert-state.json")
           state = (
               json.loads(state_file.read_text())
               if state_file.exists()
               else {"sent": []}
           )
-          sent = set(state["sent"])
+          sent = set(state.get("sent", []))
 
           records = history["records"]
           latest_run = history["lastUpdated"]
 
           def telegram(message):
               url = f"https://api.telegram.org/bot{token}/sendMessage"
-              data = {
+              payload = {
                   "chat_id": chat,
                   "text": message,
                   "disable_web_page_preview": True
               }
-              req = urllib.request.Request(
+
+              request = urllib.request.Request(
                   url,
-                  data=json.dumps(data).encode(),
+                  data=json.dumps(payload).encode(),
                   headers={"Content-Type": "application/json"},
                   method="POST"
               )
-              with urllib.request.urlopen(req, timeout=30) as response:
+
+              with urllib.request.urlopen(request, timeout=30) as response:
                   result = json.loads(response.read().decode())
+
               if not result.get("ok"):
-                  raise RuntimeError("Falha no envio ao Telegram")
+                  raise RuntimeError("Falha no envio ao Telegram.")
 
           current = {}
-          for r in records:
+
+          for record in records:
               if (
-                  r.get("recordType") == "snapshot"
-                  and r.get("collectedAt") == latest_run
-                  and r.get("modelId") in models
+                  record.get("recordType") == "snapshot"
+                  and record.get("collectedAt") == latest_run
+                  and record.get("modelId") in models
               ):
-                  current[r["modelId"]] = r
+                  current[record["modelId"]] = record
 
           count = 0
 
-          for model_id, r in current.items():
+          for model_id, record in current.items():
               model = models[model_id]
-              price = float(r["price"])
+              price = float(record["price"])
               target = float(model["target"])
               great = float(model["great"])
 
@@ -99,23 +153,30 @@ jobs:
                   alerts.append(("bom", "💡 BOM PREÇO"))
 
               previous = [
-                  x for x in records
-                  if x.get("modelId") == model_id
-                  and x.get("recordType") == "snapshot"
-                  and x.get("collectedAt")
-                  and x["collectedAt"] != latest_run
+                  item for item in records
+                  if item.get("modelId") == model_id
+                  and item.get("recordType") == "snapshot"
+                  and item.get("collectedAt")
+                  and item["collectedAt"] != latest_run
               ]
-              previous.sort(key=lambda x: x["collectedAt"], reverse=True)
+
+              previous.sort(
+                  key=lambda item: item["collectedAt"],
+                  reverse=True
+              )
 
               old_price = None
-              for old in previous:
-                  value = float(old["price"])
+
+              for item in previous:
+                  value = float(item["price"])
                   if value > 0 and value != price:
                       old_price = value
                       break
 
               if old_price and price <= old_price * 0.95:
-                  alerts.append(("queda5", "📉 QUEDA DE PELO MENOS 5%"))
+                  alerts.append(
+                      ("queda5", "📉 QUEDA DE PELO MENOS 5%")
+                  )
 
               for kind, heading in alerts:
                   key = f"{model_id}|{kind}|{price:.2f}"
@@ -128,10 +189,10 @@ jobs:
                       f"{heading}\n"
                       f"{model['name']} - 65 polegadas\n"
                       f"💰 R$ {price:,.2f}\n"
-                      f"🏬 {r.get('store') or 'Loja não informada'}\n"
+                      f"🏬 {record.get('store') or 'Loja não informada'}\n"
                       f"🎯 Alvo: R$ {target:,.2f}\n"
                       f"⭐ Excelente: R$ {great:,.2f}\n"
-                      f"🔗 {r.get('url') or 'Link não disponível'}\n\n"
+                      f"🔗 {record.get('url') or 'Link não disponível'}\n\n"
                       "Confira frete, vendedor e preço final."
                   )
 
@@ -139,29 +200,26 @@ jobs:
                   sent.add(key)
                   count += 1
 
-                  state_file.parent.mkdir(exist_ok=True)
-                  state_file.write_text(
-                      json.dumps(
-                          {"sent": sorted(sent)},
-                          ensure_ascii=False,
-                          indent=2
-                      ) + "\n"
-                  )
+          state_file.parent.mkdir(parents=True, exist_ok=True)
+          state_file.write_text(
+              json.dumps(
+                  {"sent": sorted(sent)},
+                  ensure_ascii=False,
+                  indent=2
+              ) + "\n"
+          )
 
-          if not state_file.exists():
-              state_file.parent.mkdir(exist_ok=True)
-              state_file.write_text(
-                  json.dumps({"sent": sorted(sent)}, indent=2) + "\n"
-              )
-
+          print("Modelos avaliados:", len(current))
           print("Alertas enviados:", count)
           PY
 
       - name: Salvar controle de alertas enviados
+        if: github.event_name == 'workflow_run'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/tv-radar-alert-state.json
+
           if ! git diff --cached --quiet; then
             git commit -m "Registra alertas enviados do TV Radar"
             git push
