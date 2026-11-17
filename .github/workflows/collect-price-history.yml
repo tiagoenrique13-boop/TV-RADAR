@@ -1,0 +1,239 @@
+
+name: Coletar histórico de preços TV Radar
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 12,21 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tv-radar-price-history
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Consultar ofertas e atualizar histórico
+        run: |
+          python - <<'PY'
+          import json, re, urllib.request
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          URL = "https://pechincha.ai/mcp"
+          HEADERS = {
+              "Content-Type": "application/json",
+              "Accept": "application/json, text/event-stream",
+              "User-Agent": "TV-Radar-65/1.2"
+          }
+
+          def call(payload, sid=None):
+              h = dict(HEADERS)
+              if sid:
+                  h["Mcp-Session-Id"] = sid
+              req = urllib.request.Request(
+                  URL, data=json.dumps(payload).encode(),
+                  headers=h, method="POST"
+              )
+              with urllib.request.urlopen(req, timeout=45) as r:
+                  body = r.read().decode()
+                  sid = r.headers.get("Mcp-Session-Id") or sid
+                  ct = r.headers.get("Content-Type", "")
+              if "text/event-stream" in ct:
+                  vals = []
+                  for line in body.splitlines():
+                      if line.startswith("data:"):
+                          try:
+                              vals.append(json.loads(line[5:].strip()))
+                          except json.JSONDecodeError:
+                              pass
+                  return (vals[-1] if vals else {}), sid
+              return (json.loads(body) if body else {}), sid
+
+          init, sid = call({
+              "jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {
+                  "protocolVersion": "2025-11-25",
+                  "capabilities": {},
+                  "clientInfo": {"name": "TV-Radar-65", "version": "1.2"}
+              }
+          })
+          if init.get("error"):
+              raise RuntimeError(json.dumps(init["error"]))
+
+          call({
+              "jsonrpc": "2.0",
+              "method": "notifications/initialized",
+              "params": {}
+          }, sid)
+
+          queries = [
+              "TV TCL Mini LED", "TCL C6K",
+              "TV OLED LG", "TV OLED Samsung",
+              "TV Mini LED Hisense", "televisão 65 polegadas"
+          ]
+
+          def identify(title):
+              t = title.upper()
+              if not re.search(r'(?<!\d)65\s*(?:["”]|POL|POLEGADAS)?', t):
+                  return None
+
+              if any(x in t for x in [
+                  "MONITOR", "RACK", "PAINEL", "SUPORTE",
+                  "CONTROLE REMOTO", "SOUNDBAR", "COMBO"
+              ]):
+                  return None
+
+              rules = [
+                  ("c7l", r'\b65C7L\b|\bC7L\b'),
+                  ("c7k", r'\b65C7K\b|\bC7K\b'),
+                  ("c6k", r'\b65C6K\b|\bC6K\b'),
+                  ("lg_oled_c5", r'\bOLED\s*(?:EVO\s*)?C5E?\b|\bOLED65C5\b'),
+                  ("lg_oled_b5", r'\bOLED\s*B5\b|\bOLED65B5\b'),
+                  ("lg_oled_c6", r'\bOLED\s*C6\b|\bOLED65C6\b'),
+                  ("samsung_s90", r'\bS90[DFH]?\b'),
+                  ("samsung_s95", r'\bS95[DFH]?\b'),
+                  ("samsung_qn90", r'\bQN(?:65)?90[DFH]?\b'),
+                  ("samsung_qn95", r'\bQN(?:65)?95[DFH]?\b'),
+                  ("hisense_u8", r'\b65U8[NQ]?\b|\bU8[NQ]?\b')
+              ]
+
+              for model, pattern in rules:
+                  if not re.search(pattern, t):
+                      continue
+                  if model.startswith("hisense") and "HISENSE" not in t:
+                      continue
+                  if model.startswith("samsung") and "SAMSUNG" not in t:
+                      continue
+                  if model.startswith("lg_") and not re.search(r'\bLG\b', t):
+                      continue
+                  if model in ("c7l", "c7k", "c6k") and "TCL" not in t:
+                      continue
+                  return model
+              return None
+
+          path = Path("public/data/price-history.json")
+          path.parent.mkdir(parents=True, exist_ok=True)
+
+          if path.exists():
+              data = json.loads(path.read_text(encoding="utf-8"))
+          else:
+              data = {
+                  "schemaVersion": 1,
+                  "lastUpdated": None,
+                  "records": [
+                      {
+                          "modelId": "c7l",
+                          "title": "TCL C7L 65 polegadas",
+                          "price": 5999,
+                          "store": "AliExpress",
+                          "url": "https://pechincha.ai/p/402c08b4-0b03-42e0-b9fb-eb2c05ef27d0/smart-tv-65-tcl-4k-uhd-sqd-mini-led-65c7l-google-tv-2026",
+                          "dealId": "402c08b4-0b03-42e0-b9fb-eb2c05ef27d0",
+                          "publishedAt": "2026-11-13T12:21:59.094Z",
+                          "collectedAt": "2026-11-16T00:00:00Z"
+                      },
+                      {
+                          "modelId": "c6k",
+                          "title": "TCL C6K 65 polegadas",
+                          "price": 3869,
+                          "store": "AliExpress",
+                          "url": "https://pechincha.ai/p/ab961117-7683-4da6-9cb1-3046c22e73d0/smart-tv-65-tcl-4k-uhd-miniled-65c6k-120hz-google-tv",
+                          "dealId": "ab961117-7683-4da6-9cb1-3046c22e73d0",
+                          "publishedAt": "2026-11-11T12:37:16.188Z",
+                          "collectedAt": "2026-11-16T00:00:00Z"
+                      }
+                  ]
+              }
+
+          existing = {
+              (r.get("dealId"), r.get("price"), r.get("modelId"))
+              for r in data.get("records", [])
+          }
+
+          request_id = 2
+          added = 0
+
+          for query in queries:
+              page, pages = 1, 1
+              while page <= pages:
+                  response, sid = call({
+                      "jsonrpc": "2.0",
+                      "id": request_id,
+                      "method": "tools/call",
+                      "params": {
+                          "name": "search_deals",
+                          "arguments": {
+                              "query": query, "limit": 25, "page": page
+                          }
+                      }
+                  }, sid)
+                  request_id += 1
+
+                  result = response.get("result", response)
+                  structured = result.get("structuredContent") or {}
+                  if not structured:
+                      print("Sem dados estruturados:", query)
+                      break
+
+                  pages = int(structured.get("pages", 1) or 1)
+
+                  for deal in structured.get("deals", []):
+                      title = str(
+                          deal.get("title") or deal.get("name")
+                          or deal.get("product_name") or ""
+                      )
+                      model_id = identify(title)
+                      price = deal.get("price")
+
+                      if not model_id or not isinstance(price, (int, float)) or price <= 0:
+                          continue
+
+                      deal_id = str(deal.get("id") or deal.get("url") or title)
+                      key = (deal_id, price, model_id)
+
+                      if key in existing:
+                          continue
+
+                      data["records"].append({
+                          "modelId": model_id,
+                          "title": title,
+                          "price": float(price),
+                          "store": deal.get("store") or "",
+                          "url": deal.get("url") or "",
+                          "dealId": deal_id,
+                          "publishedAt": deal.get("published_at") or deal.get("published_date"),
+                          "collectedAt": datetime.now(timezone.utc).isoformat()
+                      })
+                      existing.add(key)
+                      added += 1
+
+                  page += 1
+
+          data["lastUpdated"] = datetime.now(timezone.utc).isoformat()
+          path.write_text(
+              json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8"
+          )
+
+          print("Novos registros:", added)
+          print("Total no histórico:", len(data["records"]))
+          print("Última coleta:", data["lastUpdated"])
+          PY
+
+      - name: Salvar histórico no GitHub
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/price-history.json
+          if git diff --cached --quiet; then
+            echo "Nenhuma nova oferta."
+          else
+            git commit -m "Atualiza histórico de preços TV Radar"
+            git push
+          fi
