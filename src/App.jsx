@@ -5,50 +5,109 @@ import {
   Search, SlidersHorizontal, Trash2, Tv, TrendingDown, Wallet
 } from 'lucide-react'
 
-const initialProducts = [
-  { id:'c6k', brand:'TCL', model:'65C6K', name:'TCL C6K', tech:'QD-Mini LED', target:4000, great:3600, price:null, store:'', url:'', history:[] },
-  { id:'c7k', brand:'TCL', model:'65C7K', name:'TCL C7K', tech:'QD-Mini LED', target:4500, great:4200, price:null, store:'', url:'', history:[] },
-  { id:'c7l', brand:'TCL', model:'65C7L', name:'TCL C7L', tech:'SQD-Mini LED', target:4500, great:4200, price:null, store:'', url:'', history:[] },
-  { id:'qned80', brand:'LG', model:'65QNED80', name:'LG QNED80', tech:'QNED', target:4000, great:3700, price:null, store:'', url:'', history:[] },
-  { id:'qned70', brand:'LG', model:'65QNED70', name:'LG QNED70', tech:'QNED', target:3500, great:3300, price:null, store:'', url:'', history:[] },
-  { id:'b5', brand:'LG', model:'OLED65B5', name:'LG OLED B5', tech:'OLED', target:6000, great:5500, price:null, store:'', url:'', history:[] },
-  { id:'c5', brand:'LG', model:'OLED65C5', name:'LG OLED C5', tech:'OLED', target:6500, great:6000, price:null, store:'', url:'', history:[] },
-  { id:'s90', brand:'Samsung', model:'QN65S90', name:'Samsung OLED S90', tech:'OLED', target:6500, great:6000, price:null, store:'', url:'', history:[] },
-  { id:'qn90', brand:'Samsung', model:'QN65QN90', name:'Samsung Neo QLED', tech:'Mini LED', target:6000, great:5500, price:null, store:'', url:'', history:[] }
-]
+const STORAGE_KEY = 'tv-radar-data'
 
-const money = n => n == null || n === ''
-  ? '—'
-  : Number(n).toLocaleString('pt-BR', { style:'currency', currency:'BRL', maximumFractionDigits:0 })
+const money = value => {
+  if (value == null || value === '') return '—'
+  return Number(value).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    maximumFractionDigits: 0
+  })
+}
 
-const date = d => new Date(d).toLocaleDateString('pt-BR')
+const date = value => {
+  if (!value) return '—'
+  return new Date(value).toLocaleDateString('pt-BR')
+}
 
-const dateTime = d => new Date(d).toLocaleString('pt-BR', {
-  day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'
-})
+const dateTime = value => {
+  if (!value) return '—'
+  return new Date(value).toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
 
-const load = () => {
+// Recupera os dados manuais já salvos neste navegador.
+const loadSavedProducts = () => {
   try {
-    const v = JSON.parse(localStorage.getItem('tv-radar-data'))
-    return Array.isArray(v) && v.length ? v : initialProducts
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))
+    return Array.isArray(saved) ? saved : []
   } catch {
-    return initialProducts
+    return []
   }
 }
 
+// Combina o catálogo novo com os registros manuais existentes.
+// Os campos de preço, loja, link e histórico são preservados.
+const mergeCatalog = (catalog, savedProducts) => {
+  const savedById = new Map(
+    savedProducts.map(product => [product.id, product])
+  )
+
+  const activeProducts = catalog
+    .filter(model => model.active !== false)
+    .map(model => {
+      const saved = savedById.get(model.id) || {}
+
+      return {
+        ...model,
+        tech: model.technology || model.tech || '',
+        price: saved.price ?? null,
+        store: saved.store || '',
+        url: saved.url || '',
+        history: Array.isArray(saved.history) ? saved.history : []
+      }
+    })
+
+  // Mantém modelos antigos fora do catálogo ativo para não perder
+  // registros manuais caso sejam necessários novamente.
+  const catalogIds = new Set(catalog.map(model => model.id))
+
+  const archivedProducts = savedProducts
+    .filter(product => !catalogIds.has(product.id))
+    .map(product => ({
+      ...product,
+      active: false,
+      legacy: true
+    }))
+
+  return [...activeProducts, ...archivedProducts]
+}
+
 function PriceChart({ records }) {
-  const values = records.map(r => Number(r.price))
+  const values = records
+    .map(record => Number(record.price))
+    .filter(value => Number.isFinite(value) && value > 0)
+
+  if (!values.length) return null
+
   const min = Math.min(...values)
   const max = Math.max(...values)
 
   const points = values.map((value, index) => {
-    const x = values.length === 1 ? 50 : 8 + index * 84 / (values.length - 1)
-    const y = max === min ? 25 : 43 - ((value - min) / (max - min)) * 34
+    const x = values.length === 1
+      ? 50
+      : 8 + index * 84 / (values.length - 1)
+
+    const y = max === min
+      ? 25
+      : 43 - ((value - min) / (max - min)) * 34
+
     return `${x},${y}`
   })
 
   return (
-    <svg className="price-chart" viewBox="0 0 100 50" preserveAspectRatio="none">
+    <svg
+      className="price-chart"
+      viewBox="0 0 100 50"
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="Histórico de preços"
+    >
       {points.length > 1 && (
         <polyline
           points={points.join(' ')}
@@ -58,58 +117,158 @@ function PriceChart({ records }) {
           vectorEffect="non-scaling-stroke"
         />
       )}
+
       {points.map((point, index) => {
         const [x, y] = point.split(',')
-        return <circle key={index} cx={x} cy={y} r="2.3" fill="#d5f34b" />
+        return (
+          <circle
+            key={index}
+            cx={x}
+            cy={y}
+            r="2.3"
+            fill="#d5f34b"
+          />
+        )
       })}
     </svg>
   )
 }
 
 export default function App() {
-  const [products, setProducts] = useState(load)
+  const [products, setProducts] = useState(loadSavedProducts)
+  const [catalogLoaded, setCatalogLoaded] = useState(false)
+  const [catalogError, setCatalogError] = useState(false)
+
   const [query, setQuery] = useState('')
   const [tech, setTech] = useState('Todas')
   const [editing, setEditing] = useState(null)
   const [tab, setTab] = useState('radar')
   const [notice, setNotice] = useState('')
-  const [autoData, setAutoData] = useState({ records:[], lastUpdated:null })
+
+  const [autoData, setAutoData] = useState({
+    records: [],
+    lastUpdated: null
+  })
   const [autoStatus, setAutoStatus] = useState('Carregando...')
 
-  // Preserva os registros manuais neste navegador.
+  const activeProducts = useMemo(
+    () => products.filter(product => product.active !== false),
+    [products]
+  )
+
+  const modelById = useMemo(() => {
+    return new Map(activeProducts.map(product => [product.id, product]))
+  }, [activeProducts])
+
+  // Carrega o catálogo externo e combina com os dados locais.
   useEffect(() => {
-    localStorage.setItem('tv-radar-data', JSON.stringify(products))
-  }, [products])
+    let cancelled = false
+
+    fetch(`${import.meta.env.BASE_URL}data/models.json`, {
+      cache: 'no-store'
+    })
+      .then(response => {
+        if (!response.ok) throw new Error('Catálogo indisponível')
+        return response.json()
+      })
+      .then(data => {
+        if (!Array.isArray(data.models)) {
+          throw new Error('Formato inválido do catálogo')
+        }
+
+        if (cancelled) return
+
+        setProducts(current => mergeCatalog(data.models, current))
+        setCatalogLoaded(true)
+        setCatalogError(false)
+      })
+      .catch(error => {
+        console.error('Erro ao carregar catálogo:', error)
+
+        if (!cancelled) {
+          setCatalogError(true)
+          setCatalogLoaded(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Salva somente depois de carregar o catálogo.
+  // Evita sobrescrever os dados existentes com uma lista vazia.
+  useEffect(() => {
+    if (!catalogLoaded) return
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(products))
+    } catch (error) {
+      console.error('Erro ao salvar dados locais:', error)
+      setNotice('Não foi possível salvar os dados neste navegador.')
+    }
+  }, [products, catalogLoaded])
 
   // Busca o histórico central publicado pelo GitHub Actions.
   useEffect(() => {
+    let cancelled = false
+
     fetch(`${import.meta.env.BASE_URL}data/price-history.json`, {
-      cache:'no-store'
+      cache: 'no-store'
     })
       .then(response => {
         if (!response.ok) throw new Error('Histórico indisponível')
         return response.json()
       })
       .then(data => {
+        if (cancelled) return
+
         setAutoData(data)
         setAutoStatus('Coleta conectada')
       })
       .catch(() => {
-        setAutoStatus('Histórico indisponível')
+        if (!cancelled) {
+          setAutoStatus('Histórico indisponível')
+        }
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  const filtered = useMemo(() => products.filter(p =>
-    `${p.brand} ${p.name} ${p.model}`.toLowerCase().includes(query.toLowerCase()) &&
-    (tech === 'Todas' || p.tech.toLowerCase().includes(tech.toLowerCase()))
-  ), [products, query, tech])
+  const filtered = useMemo(() => {
+    return activeProducts.filter(product => {
+      const searchText = [
+        product.brand,
+        product.name,
+        product.model,
+        product.technology,
+        product.tech
+      ].join(' ').toLowerCase()
 
-  const ranked = [...products]
-    .filter(p => p.price)
-    .sort((a, b) => a.price - b.price)
+      const matchesQuery = searchText.includes(query.toLowerCase())
 
-  const opportunities = products.filter(p =>
-    p.price && p.price <= p.great
+      const technology = (product.technology || product.tech || '')
+        .toLowerCase()
+
+      const matchesTech =
+        tech === 'Todas' ||
+        technology.includes(tech.toLowerCase())
+
+      return matchesQuery && matchesTech
+    })
+  }, [activeProducts, query, tech])
+
+  const ranked = useMemo(() => {
+    return activeProducts
+      .filter(product => Number(product.price) > 0)
+      .sort((a, b) => Number(a.price) - Number(b.price))
+  }, [activeProducts])
+
+  const opportunities = activeProducts.filter(product =>
+    Number(product.price) > 0 &&
+    Number(product.price) <= Number(product.great)
   )
 
   // Agrupa os snapshots automáticos por modelo.
@@ -123,52 +282,74 @@ export default function App() {
         record.collectedAt
       )
       .forEach(record => {
-        if (!groups[record.modelId]) groups[record.modelId] = []
+        if (!groups[record.modelId]) {
+          groups[record.modelId] = []
+        }
+
         groups[record.modelId].push(record)
       })
 
-    return Object.entries(groups).map(([modelId, records]) => {
-      records.sort((a, b) =>
-        new Date(a.collectedAt) - new Date(b.collectedAt)
-      )
+    return Object.entries(groups)
+      .map(([modelId, records]) => {
+        records.sort((a, b) =>
+          new Date(a.collectedAt) - new Date(b.collectedAt)
+        )
 
-      return {
-        modelId,
-        records,
-        latest: records[records.length - 1],
-        lowest: Math.min(...records.map(r => Number(r.price)))
-      }
-    }).sort((a, b) => a.latest.price - b.latest.price)
-  }, [autoData])
+        const latest = records[records.length - 1]
+        const product = modelById.get(modelId)
+
+        return {
+          modelId,
+          product,
+          records,
+          latest,
+          lowest: Math.min(...records.map(record =>
+            Number(record.price)
+          ))
+        }
+      })
+      .sort((a, b) =>
+        Number(a.latest.price) - Number(b.latest.price)
+      )
+  }, [autoData, modelById])
 
   const update = (id, patch) => {
     setProducts(current =>
-      current.map(p => p.id === id ? { ...p, ...patch } : p)
+      current.map(product =>
+        product.id === id
+          ? { ...product, ...patch }
+          : product
+      )
     )
   }
 
   const savePrice = (id, form) => {
     const price = Number(form.price)
 
-    if (!price || price <= 0) {
+    if (!Number.isFinite(price) || price <= 0) {
       setNotice('Informe um preço válido.')
       return
     }
 
-    const product = products.find(p => p.id === id)
+    const product = products.find(item => item.id === id)
+
+    if (!product) {
+      setNotice('Modelo não encontrado.')
+      return
+    }
 
     const item = {
-      date:new Date().toISOString(),
+      date: new Date().toISOString(),
       price,
-      store:form.store.trim(),
-      url:form.url.trim()
+      store: form.store.trim(),
+      url: form.url.trim()
     }
 
     update(id, {
       price,
-      store:item.store,
-      url:item.url,
-      history:[...(product.history || []), item]
+      store: item.store,
+      url: item.url,
+      history: [...(product.history || []), item]
     })
 
     setEditing(null)
@@ -178,30 +359,51 @@ export default function App() {
 
   const removeHistory = id => {
     if (confirm('Apagar o histórico manual deste modelo?')) {
-      update(id, { history:[], price:null, store:'', url:'' })
+      update(id, {
+        history: [],
+        price: null,
+        store: '',
+        url: ''
+      })
     }
   }
 
-  const status = p => {
-    if (!p.price) return 'Sem preço'
-    if (p.price <= p.great) return 'Oportunidade excelente'
-    if (p.price <= p.target) return 'Bom preço'
+  const status = product => {
+    if (!Number(product.price)) return 'Sem preço'
+    if (product.price <= product.great) {
+      return 'Oportunidade excelente'
+    }
+    if (product.price <= product.target) return 'Bom preço'
     return 'Aguardar'
   }
 
-  const statusClass = p => {
-    if (!p.price) return 'neutral'
-    if (p.price <= p.great) return 'great'
-    if (p.price <= p.target) return 'good'
+  const statusClass = product => {
+    if (!Number(product.price)) return 'neutral'
+    if (product.price <= product.great) return 'great'
+    if (product.price <= product.target) return 'good'
     return 'wait'
   }
 
-  const startEdit = p => {
+  const automaticStatus = (price, product) => {
+    if (!product) return 'Modelo fora do catálogo'
+    if (price <= product.great) return 'Oportunidade excelente'
+    if (price <= product.target) return 'Bom preço'
+    return 'Acima do alvo'
+  }
+
+  const automaticStatusClass = (price, product) => {
+    if (!product) return 'neutral'
+    if (price <= product.great) return 'great'
+    if (price <= product.target) return 'good'
+    return 'wait'
+  }
+
+  const startEdit = product => {
     setEditing({
-      id:p.id,
-      price:p.price || '',
-      store:p.store || '',
-      url:p.url || ''
+      id: product.id,
+      price: product.price || '',
+      store: product.store || '',
+      url: product.url || ''
     })
   }
 
@@ -209,14 +411,15 @@ export default function App() {
     <div className="app">
       <header className="top">
         <div className="brand">
-          <div className="logo"><Tv size={22}/></div>
+          <div className="logo"><Tv size={22} /></div>
           <div>
             <b>TV RADAR <span>65</span></b>
             <small>Seu painel pessoal de oportunidades</small>
           </div>
         </div>
+
         <div className="topnote">
-          <Activity size={16}/> Acompanhamento de preços
+          <Activity size={16} /> Acompanhamento de preços
         </div>
       </header>
 
@@ -224,14 +427,15 @@ export default function App() {
         <section className="hero">
           <div>
             <div className="eyebrow">RADAR DE PREÇOS · BRASIL</div>
-            <h1>A próxima TV<br/><em>no melhor preço.</em></h1>
+            <h1>A próxima TV<br /><em>no melhor preço.</em></h1>
             <p>
               Acompanhe modelos de 65”, registre ofertas e descubra
               quando vale comprar.
             </p>
           </div>
+
           <div className="heroicon">
-            <Tv size={86} strokeWidth={1}/>
+            <Tv size={86} strokeWidth={1} />
             <span>65”</span>
           </div>
         </section>
@@ -239,20 +443,29 @@ export default function App() {
         <section className="stats">
           <div className="stat">
             <span>Modelos monitorados</span>
-            <strong>{products.length}</strong>
-            <small>OLED, Mini LED e QNED</small>
+            <strong>{activeProducts.length}</strong>
+            <small>OLED e Mini LED</small>
           </div>
+
           <div className="stat">
             <span>Preços registrados manualmente</span>
             <strong>{ranked.length}</strong>
             <small>Seus registros neste navegador</small>
           </div>
+
           <div className="stat highlight">
             <span>Oportunidades manuais</span>
             <strong>{opportunities.length}</strong>
             <small>Preço no alvo excelente</small>
           </div>
         </section>
+
+        {catalogError && (
+          <div className="automatic-empty">
+            Não foi possível carregar o catálogo. Confira se
+            public/data/models.json está publicado.
+          </div>
+        )}
 
         <section className="automatic-panel">
           <div className="automatic-heading">
@@ -263,8 +476,9 @@ export default function App() {
                 Ofertas encontradas pelo coletor do TV Radar.
               </p>
             </div>
+
             <span className="auto-status">
-              <span className="status-dot"/> {autoStatus}
+              <span className="status-dot" /> {autoStatus}
             </span>
           </div>
 
@@ -272,10 +486,16 @@ export default function App() {
             <div className="automatic-grid">
               {automaticModels.map(model => {
                 const latest = model.latest
-                const modelName = latest.title || latest.modelId
+                const product = model.product
+                const modelName = product
+                  ? product.name
+                  : (latest.title || latest.modelId)
 
                 return (
-                  <article className="automatic-card" key={model.modelId}>
+                  <article
+                    className="automatic-card"
+                    key={model.modelId}
+                  >
                     <div className="automatic-model">
                       {modelName}
                     </div>
@@ -289,7 +509,26 @@ export default function App() {
                       <span>{model.records.length} coleta(s)</span>
                     </div>
 
-                    <PriceChart records={model.records}/>
+                    <span className={`pill ${
+                      automaticStatusClass(
+                        Number(latest.price),
+                        product
+                      )
+                    }`}>
+                      {automaticStatus(
+                        Number(latest.price),
+                        product
+                      )}
+                    </span>
+
+                    {product && (
+                      <div className="automatic-meta lowest">
+                        <span>Alvo bom: {money(product.target)}</span>
+                        <b>Excelente: {money(product.great)}</b>
+                      </div>
+                    )}
+
+                    <PriceChart records={model.records} />
 
                     <div className="automatic-meta lowest">
                       <span>Menor observado</span>
@@ -297,10 +536,17 @@ export default function App() {
                     </div>
 
                     <div className="automatic-meta offer-link">
-                      <span>Última coleta: {dateTime(latest.collectedAt)}</span>
+                      <span>
+                        Última coleta: {dateTime(latest.collectedAt)}
+                      </span>
+
                       {latest.url && (
-                        <a href={latest.url} target="_blank" rel="noreferrer">
-                          Ver oferta <ExternalLink size={12}/>
+                        <a
+                          href={latest.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Ver oferta <ExternalLink size={12} />
                         </a>
                       )}
                     </div>
@@ -324,6 +570,11 @@ export default function App() {
             </span>
             <span>Fonte: Pechincha.ai</span>
           </div>
+
+          <p className="automatic-date">
+            Preços encontrados são referências. Confira frete,
+            vendedor, cupons e preço final antes de comprar.
+          </p>
         </section>
 
         <nav className="tabs">
@@ -333,12 +584,14 @@ export default function App() {
           >
             Meu radar
           </button>
+
           <button
             className={tab === 'ranking' ? 'active' : ''}
             onClick={() => setTab('ranking')}
           >
             Melhores preços
           </button>
+
           <button
             className={tab === 'guide' ? 'active' : ''}
             onClick={() => setTab('guide')}
@@ -352,103 +605,137 @@ export default function App() {
             <section className="toolbar">
               <div>
                 <h2>Modelos acompanhados</h2>
-                <p>Registre manualmente os preços que encontrar.</p>
+                <p>
+                  Catálogo centralizado · preços registrados manualmente.
+                </p>
               </div>
 
               <div className="filters">
                 <label className="search">
-                  <Search size={16}/>
+                  <Search size={16} />
                   <input
                     placeholder="Buscar TV..."
                     value={query}
-                    onChange={e => setQuery(e.target.value)}
+                    onChange={event => setQuery(event.target.value)}
                   />
                 </label>
 
                 <label className="select">
-                  <SlidersHorizontal size={15}/>
+                  <SlidersHorizontal size={15} />
                   <select
                     value={tech}
-                    onChange={e => setTech(e.target.value)}
+                    onChange={event => setTech(event.target.value)}
                   >
                     <option>Todas</option>
                     <option>OLED</option>
                     <option>Mini LED</option>
-                    <option>QNED</option>
                   </select>
-                  <ChevronDown size={14}/>
+                  <ChevronDown size={14} />
                 </label>
               </div>
             </section>
 
+            {!catalogLoaded && (
+              <div className="automatic-empty">
+                Carregando catálogo de modelos...
+              </div>
+            )}
+
             <div className="grid">
-              {filtered.map(p => (
-                <article className="tvcard" key={p.id}>
+              {filtered.map(product => (
+                <article className="tvcard" key={product.id}>
                   <div className="cardtop">
-                    <span className="maker">{p.brand}</span>
-                    <span className={`pill ${statusClass(p)}`}>
-                      {status(p)}
+                    <span className="maker">{product.brand}</span>
+                    <span className={`pill ${statusClass(product)}`}>
+                      {status(product)}
                     </span>
                   </div>
 
-                  <h3>{p.name}</h3>
-                  <div className="model">{p.model} · 65 polegadas</div>
-                  <div className="tech">{p.tech}</div>
+                  <h3>{product.name}</h3>
+                  <div className="model">
+                    {product.model} · 65 polegadas
+                  </div>
+                  <div className="tech">
+                    {product.technology || product.tech}
+                  </div>
 
                   <div className="pricearea">
                     <div>
                       <small>Último preço manual</small>
-                      <strong>{money(p.price)}</strong>
+                      <strong>{money(product.price)}</strong>
                       <small>
-                        {p.store ? `em ${p.store}` : 'Nenhuma oferta cadastrada'}
+                        {product.store
+                          ? `em ${product.store}`
+                          : 'Nenhuma oferta cadastrada'}
                       </small>
                     </div>
 
                     <div className="targets">
-                      <span>Alvo {money(p.target)}</span>
-                      <b>Ótimo {money(p.great)}</b>
+                      <span>Alvo {money(product.target)}</span>
+                      <b>Ótimo {money(product.great)}</b>
                     </div>
                   </div>
 
                   <div className="bar">
                     <span style={{
-                      width:p.price
-                        ? `${Math.min(100, Math.max(4, (p.great / p.price) * 100))}%`
+                      width: product.price
+                        ? `${Math.min(
+                            100,
+                            Math.max(
+                              4,
+                              (product.great / product.price) * 100
+                            )
+                          )}%`
                         : '0%'
-                    }}/>
+                    }} />
                   </div>
 
                   <div className="cardactions">
-                    <button className="primary" onClick={() => startEdit(p)}>
-                      <Plus size={16}/> Registrar preço
+                    <button
+                      className="primary"
+                      onClick={() => startEdit(product)}
+                    >
+                      <Plus size={16} /> Registrar preço
                     </button>
 
-                    {p.url && (
-                      <a href={p.url} target="_blank" rel="noreferrer"
-                        aria-label="Abrir oferta">
-                        <ExternalLink size={17}/>
+                    {product.url && (
+                      <a
+                        href={product.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label="Abrir oferta"
+                      >
+                        <ExternalLink size={17} />
                       </a>
                     )}
 
                     <button
                       className="iconbtn"
                       title="Apagar histórico manual"
-                      onClick={() => removeHistory(p.id)}
+                      onClick={() => removeHistory(product.id)}
                     >
-                      <Trash2 size={16}/>
+                      <Trash2 size={16} />
                     </button>
                   </div>
 
-                  {p.history?.length > 0 && (
+                  {product.history?.length > 0 && (
                     <div className="historyline">
-                      <TrendingDown size={14}/>
-                      {p.history.length} registro(s) · último em{' '}
-                      {date(p.history[p.history.length - 1].date)}
+                      <TrendingDown size={14} />
+                      {product.history.length} registro(s) · último em{' '}
+                      {date(
+                        product.history[product.history.length - 1].date
+                      )}
                     </div>
                   )}
                 </article>
               ))}
             </div>
+
+            {catalogLoaded && filtered.length === 0 && (
+              <div className="automatic-empty">
+                Nenhum modelo encontrado para esse filtro.
+              </div>
+            )}
           </>
         )}
 
@@ -463,23 +750,36 @@ export default function App() {
               <div className="empty">
                 Ainda não há preços. Vá ao Meu radar e registre a primeira oferta.
               </div>
-            ) : ranked.map((p, i) => (
-              <div className="rankrow" key={p.id}>
-                <b className="ranknum">0{i + 1}</b>
-                <div className="rankname">
-                  <strong>{p.name}</strong>
-                  <small>{p.store || 'Loja não informada'} · {p.tech}</small>
+            ) : (
+              ranked.map((product, index) => (
+                <div className="rankrow" key={product.id}>
+                  <b className="ranknum">
+                    {String(index + 1).padStart(2, '0')}
+                  </b>
+
+                  <div className="rankname">
+                    <strong>{product.name}</strong>
+                    <small>
+                      {product.store || 'Loja não informada'} ·{' '}
+                      {product.technology || product.tech}
+                    </small>
+                  </div>
+
+                  <strong>{money(product.price)}</strong>
+
+                  <span className={`pill ${statusClass(product)}`}>
+                    {status(product)}
+                  </span>
                 </div>
-                <strong>{money(p.price)}</strong>
-                <span className={`pill ${statusClass(p)}`}>{status(p)}</span>
-              </div>
-            ))}
+              ))
+            )}
           </section>
         )}
 
         {tab === 'guide' && (
           <section className="panel guide">
             <h2>Como usar o radar</h2>
+
             <ol>
               <li>Encontre a TV em uma loja brasileira conhecida.</li>
               <li>Confira o código completo do modelo e quem é o vendedor.</li>
@@ -488,7 +788,7 @@ export default function App() {
             </ol>
 
             <div className="tip">
-              <Bell size={18}/>
+              <Bell size={18} />
               <div>
                 <b>Sobre os alertas</b>
                 <p>
@@ -499,12 +799,24 @@ export default function App() {
             </div>
 
             <div className="tip">
-              <Wallet size={18}/>
+              <Wallet size={18} />
               <div>
                 <b>O que conferir antes de comprar</b>
                 <p>
                   Preço à vista e parcelado, frete, cupom, vendedor,
                   nota fiscal, garantia e condições de entrega.
+                </p>
+              </div>
+            </div>
+
+            <div className="tip">
+              <Activity size={18} />
+              <div>
+                <b>Catálogo centralizado</b>
+                <p>
+                  Os modelos e os preços-alvo são carregados de
+                  public/data/models.json. Os seus preços manuais
+                  continuam salvos neste navegador.
                 </p>
               </div>
             </div>
@@ -518,24 +830,31 @@ export default function App() {
       </main>
 
       {editing && (
-        <div className="modalback" onClick={() => setEditing(null)}>
+        <div
+          className="modalback"
+          onClick={() => setEditing(null)}
+        >
           <form
             className="modal"
-            onClick={e => e.stopPropagation()}
-            onSubmit={e => {
-              e.preventDefault()
+            onClick={event => event.stopPropagation()}
+            onSubmit={event => {
+              event.preventDefault()
+
               savePrice(editing.id, {
-                price:e.target.price.value,
-                store:e.target.store.value,
-                url:e.target.url.value
+                price: event.target.price.value,
+                store: event.target.store.value,
+                url: event.target.url.value
               })
             }}
           >
             <div className="modalhead">
               <div>
                 <small>NOVO REGISTRO</small>
-                <h2>{products.find(p => p.id === editing.id)?.name}</h2>
+                <h2>
+                  {products.find(product => product.id === editing.id)?.name}
+                </h2>
               </div>
+
               <button
                 type="button"
                 className="close"
@@ -583,7 +902,7 @@ export default function App() {
             </div>
 
             <button className="primary full" type="submit">
-              <Check size={17}/> Salvar preço
+              <Check size={17} /> Salvar preço
             </button>
           </form>
         </div>
