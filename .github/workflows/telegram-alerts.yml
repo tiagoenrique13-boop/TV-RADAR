@@ -1,0 +1,168 @@
+
+name: Alertas TV Radar Telegram
+
+on:
+  workflow_run:
+    workflows: ["Coletar histórico de preços TV Radar"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  alerts:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar dados do radar
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Avaliar ofertas e enviar alertas
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          token = os.environ["TELEGRAM_BOT_TOKEN"]
+          chat = os.environ["TELEGRAM_CHAT_ID"]
+
+          history = json.loads(
+              Path("public/data/price-history.json").read_text()
+          )
+          catalog = json.loads(
+              Path("public/data/models.json").read_text()
+          )
+
+          models = {m["id"]: m for m in catalog["models"]}
+          state_file = Path(".github/tv-radar-alert-state.json")
+
+          state = (
+              json.loads(state_file.read_text())
+              if state_file.exists()
+              else {"sent": []}
+          )
+          sent = set(state["sent"])
+
+          records = history["records"]
+          latest_run = history["lastUpdated"]
+
+          def telegram(message):
+              url = f"https://api.telegram.org/bot{token}/sendMessage"
+              data = {
+                  "chat_id": chat,
+                  "text": message,
+                  "disable_web_page_preview": True
+              }
+              req = urllib.request.Request(
+                  url,
+                  data=json.dumps(data).encode(),
+                  headers={"Content-Type": "application/json"},
+                  method="POST"
+              )
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  result = json.loads(response.read().decode())
+              if not result.get("ok"):
+                  raise RuntimeError("Falha no envio ao Telegram")
+
+          current = {}
+          for r in records:
+              if (
+                  r.get("recordType") == "snapshot"
+                  and r.get("collectedAt") == latest_run
+                  and r.get("modelId") in models
+              ):
+                  current[r["modelId"]] = r
+
+          count = 0
+
+          for model_id, r in current.items():
+              model = models[model_id]
+              price = float(r["price"])
+              target = float(model["target"])
+              great = float(model["great"])
+
+              alerts = []
+
+              if price <= great:
+                  alerts.append(("excelente", "🔥 PREÇO EXCELENTE"))
+              elif price <= target:
+                  alerts.append(("bom", "💡 BOM PREÇO"))
+
+              previous = [
+                  x for x in records
+                  if x.get("modelId") == model_id
+                  and x.get("recordType") == "snapshot"
+                  and x.get("collectedAt")
+                  and x["collectedAt"] != latest_run
+              ]
+              previous.sort(key=lambda x: x["collectedAt"], reverse=True)
+
+              old_price = None
+              for old in previous:
+                  value = float(old["price"])
+                  if value > 0 and value != price:
+                      old_price = value
+                      break
+
+              if old_price and price <= old_price * 0.95:
+                  alerts.append(("queda5", "📉 QUEDA DE PELO MENOS 5%"))
+
+              for kind, heading in alerts:
+                  key = f"{model_id}|{kind}|{price:.2f}"
+
+                  if key in sent:
+                      continue
+
+                  message = (
+                      f"📺 TV RADAR 65\n\n"
+                      f"{heading}\n"
+                      f"{model['name']} - 65 polegadas\n"
+                      f"💰 R$ {price:,.2f}\n"
+                      f"🏬 {r.get('store') or 'Loja não informada'}\n"
+                      f"🎯 Alvo: R$ {target:,.2f}\n"
+                      f"⭐ Excelente: R$ {great:,.2f}\n"
+                      f"🔗 {r.get('url') or 'Link não disponível'}\n\n"
+                      "Confira frete, vendedor e preço final."
+                  )
+
+                  telegram(message)
+                  sent.add(key)
+                  count += 1
+
+                  state_file.parent.mkdir(exist_ok=True)
+                  state_file.write_text(
+                      json.dumps(
+                          {"sent": sorted(sent)},
+                          ensure_ascii=False,
+                          indent=2
+                      ) + "\n"
+                  )
+
+          if not state_file.exists():
+              state_file.parent.mkdir(exist_ok=True)
+              state_file.write_text(
+                  json.dumps({"sent": sorted(sent)}, indent=2) + "\n"
+              )
+
+          print("Alertas enviados:", count)
+          PY
+
+      - name: Salvar controle de alertas enviados
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/tv-radar-alert-state.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Registra alertas enviados do TV Radar"
+            git push
+          fi
