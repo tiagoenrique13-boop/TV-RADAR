@@ -1,0 +1,133 @@
+
+{
+  "version": 1,
+  "currency": "BRL",
+  "screenSize": 65,
+  "models": [
+    {
+      "id": "c6k",
+      "brand": "TCL",
+      "name": "TCL C6K",
+      "model": "65C6K",
+      "technology": "QD-Mini LED",
+      "category": "mini-led",
+      "target": 3800,
+      "great": 3500,
+      "priority": 1,
+      "active": true
+    },
+    {
+      "id": "c7k",
+      "brand": "TCL",
+      "name": "TCL C7K",
+      "model": "65C7K",
+      "technology": "QD-Mini LED",
+      "category": "mini-led",
+      "target": 5500,
+      "great": 5000,
+      "priority": 2,
+      "active": true
+    },
+    {
+      "id": "c7l",
+      "brand": "TCL",
+      "name": "TCL C7L",
+      "model": "65C7L",
+      "technology": "SQD-Mini LED",
+      "category": "mini-led",
+      "target": 5500,
+      "great": 5000,
+      "priority": 1,
+      "active": true
+    },
+    {
+      "id": "hisense_u8",
+      "brand": "Hisense",
+      "name": "Hisense U8",
+      "model": "65U8",
+      "technology": "Mini LED",
+      "category": "mini-led",
+      "target": 5800,
+      "great": 5200,
+      "priority": 2,
+      "active": true,
+      "needsExactModelValidation": true
+    },
+    {
+      "id": "samsung_qn90",
+      "brand": "Samsung",
+      "name": "Samsung Neo QLED QN90",
+      "model": "QN65QN90",
+      "technology": "Neo QLED Mini LED",
+      "category": "mini-led",
+      "target": 6500,
+      "great": 5800,
+      "priority": 2,
+      "active": true,
+      "needsExactModelValidation": true
+    },
+    {
+      "id": "philips_pml9118",
+      "brand": "Philips",
+      "name": "Philips The Xtra",
+      "model": "65PML9118",
+      "technology": "Mini LED",
+      "category": "mini-led",
+      "target": 5000,
+      "great": 4500,
+      "priority": 3,
+      "active": true,
+      "needsExactModelValidation": true
+    },
+    {
+      "id": "lg_b5",
+      "brand": "LG",
+      "name": "LG OLED B5",
+      "model": "OLED65B5",
+      "technology": "OLED",
+      "category": "oled",
+      "target": 7500,
+      "great": 6800,
+      "priority": 2,
+      "active": true
+    },
+    {
+      "id": "lg_c5",
+      "brand": "LG",
+      "name": "LG OLED C5",
+      "model": "OLED65C5",
+      "technology": "OLED",
+      "category": "oled",
+      "target": 8500,
+      "great": 7800,
+      "priority": 1,
+      "active": true
+    },
+    {
+      "id": "samsung_s90",
+      "brand": "Samsung",
+      "name": "Samsung OLED S90",
+      "model": "QN65S90",
+      "technology": "OLED",
+      "category": "oled",
+      "target": 7500,
+      "great": 6800,
+      "priority": 1,
+      "active": true,
+      "needsExactModelValidation": true
+    },
+    {
+      "id": "samsung_s95",
+      "brand": "Samsung",
+      "name": "Samsung OLED S95",
+      "model": "QN65S95",
+      "technology": "OLED",
+      "category": "oled",
+      "target": 10500,
+      "great": 9500,
+      "priority": 2,
+      "active": true,
+      "needsExactModelValidation": true
+    }
+  ]
+}
