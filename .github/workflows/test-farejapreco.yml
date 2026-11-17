@@ -1,14 +1,14 @@
 
-name: Test TV Price Coverage
+name: Discover TV Catalog
 
 on:
   workflow_dispatch:
 
 jobs:
-  test-catalog:
+  discover:
     runs-on: ubuntu-latest
     steps:
-      - name: Check exact TV models
+      - name: Search broader TV model names
         run: |
           python - <<'PY'
           import json
@@ -16,40 +16,57 @@ jobs:
           import urllib.parse
           import urllib.request
 
-          models = [
-              "TCL 65C6K",
-              "TCL 65C7K",
-              "TCL 65C7L",
-              "LG 65QNED80",
-              "LG 65QNED70",
-              "LG OLED65B5",
-              "LG OLED65C5",
-              "Samsung QN65S90",
-              "Samsung QN65QN90",
+          queries = [
+              "TCL C7L 65",
+              "TCL 65 C7L",
+              "TCL C7K 65 Mini LED",
+              "TCL C6K 65 Mini LED",
+              "LG OLED C6 65",
+              "LG OLED C5 65",
+              "Samsung OLED S90H 65",
+              "Samsung OLED S95H 65",
+              "Samsung Neo QLED Mini LED 65",
+              "Hisense U8 65 Mini LED",
           ]
 
           base = "https://farejapreco.com.br/api/v1/produtos"
 
-          for i, model in enumerate(models):
+          for i, query in enumerate(queries):
               if i:
                   time.sleep(7)
 
               url = base + "?" + urllib.parse.urlencode({
-                  "q": model, "limite": 5
+                  "q": query,
+                  "limite": 10,
+                  "ordenar": "relevancia"
               })
 
-              print("\n===== " + model + " =====")
+              print("\n===== BUSCA: " + query + " =====")
 
               try:
                   req = urllib.request.Request(
                       url,
                       headers={"User-Agent": "TV-Radar-65/1.0"}
                   )
-                  with urllib.request.urlopen(req, timeout=30) as r:
-                      data = json.load(r)
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      data = json.load(response)
 
-                  print(json.dumps(data, ensure_ascii=False)[:3500])
+                  print("RESULTADOS:", data.get("count", 0))
 
-              except Exception as e:
-                  print("ERRO:", type(e).__name__, str(e))
+                  for item in data.get("items", []):
+                      print(json.dumps({
+                          "id": item.get("id"),
+                          "product": item.get("product"),
+                          "brand": item.get("brand"),
+                          "model": item.get("model"),
+                          "store": item.get("store"),
+                          "price_status": item.get("price_status"),
+                          "product_url": item.get("product_url")
+                      }, ensure_ascii=False))
+
+                  if not data.get("items"):
+                      print("Nenhuma correspondência.")
+
+              except Exception as exc:
+                  print("ERRO:", type(exc).__name__, str(exc))
           PY
