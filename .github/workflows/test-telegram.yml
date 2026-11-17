@@ -1,0 +1,78 @@
+
+name: Testar alerta TV Radar no Telegram
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  send-message:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enviar mensagem de teste
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          token = os.environ["TELEGRAM_BOT_TOKEN"]
+          chat_id = os.environ["TELEGRAM_CHAT_ID"]
+
+          message = """
+          📺 <b>TV RADAR 65 | ALERTA DE OFERTAS</b>
+
+          🔥 <b>TCL C7L — 65"</b>
+          💰 <b>R$ 5.999,00</b>
+          🛒 AliExpress
+          📅 Oferta publicada em 13/11/2026
+          🔗 <a href="https://pechincha.ai/p/402c08b4-0b03-42e0-b9fb-eb2c05ef27d0/smart-tv-65-tcl-4k-uhd-sqd-mini-led-65c7l-google-tv-2026">Ver oferta</a>
+
+          ━━━━━━━━━━━━━━━
+
+          💡 <b>TCL C6K — 65"</b>
+          💰 <b>R$ 3.869,00</b>
+          🛒 AliExpress
+          📅 Oferta publicada em 11/11/2026
+          🔗 <a href="https://pechincha.ai/p/ab961117-7683-4da6-9cb1-3046c22e73d0/smart-tv-65-tcl-4k-uhd-miniled-65c6k-120hz-google-tv">Ver oferta</a>
+
+          ━━━━━━━━━━━━━━━
+
+          <i>Teste de integração do TV Radar.
+          Preços registrados nas ofertas; confirme o valor
+          e a disponibilidade na loja antes de comprar.</i>
+
+          🤖 Monitoramento: teste manual
+          """
+
+          url = f"https://api.telegram.org/bot{token}/sendMessage"
+
+          payload = {
+              "chat_id": chat_id,
+              "text": message,
+              "parse_mode": "HTML",
+              "disable_web_page_preview": True
+          }
+
+          req = urllib.request.Request(
+              url,
+              data=json.dumps(payload).encode(),
+              headers={"Content-Type": "application/json"},
+              method="POST"
+          )
+
+          with urllib.request.urlopen(req, timeout=30) as response:
+              result = json.loads(response.read().decode())
+
+          if not result.get("ok"):
+              raise RuntimeError("Telegram não confirmou o envio.")
+
+          print("Mensagem enviada com sucesso!")
+          print("Chat ID:", result["result"]["chat"]["id"])
+          print("Message ID:", result["result"]["message_id"])
+          PY
