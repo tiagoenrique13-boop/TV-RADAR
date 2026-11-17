@@ -1,1 +1,90 @@
 
+name: Testar cobertura Pechincha.ai
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Buscar modelos do TV Radar
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+
+          URL = "https://pechincha.ai/mcp"
+          HEADERS = {
+              "Content-Type": "application/json",
+              "Accept": "application/json, text/event-stream",
+              "User-Agent": "TV-Radar-65/1.0"
+          }
+
+          def call(payload, sid=None):
+              h = dict(HEADERS)
+              if sid:
+                  h["Mcp-Session-Id"] = sid
+              req = urllib.request.Request(URL, data=json.dumps(payload).encode(),
+                                           headers=h, method="POST")
+              with urllib.request.urlopen(req, timeout=45) as r:
+                  body = r.read().decode()
+                  sid = r.headers.get("Mcp-Session-Id") or sid
+                  ct = r.headers.get("Content-Type", "")
+              if "text/event-stream" in ct:
+                  vals = []
+                  for line in body.splitlines():
+                      if line.startswith("data:"):
+                          try:
+                              vals.append(json.loads(line[5:].strip()))
+                          except json.JSONDecodeError:
+                              pass
+                  return (vals[-1] if vals else {}), sid
+              return (json.loads(body) if body else {}), sid
+
+          init, sid = call({
+              "jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {
+                  "protocolVersion": "2025-11-25",
+                  "capabilities": {},
+                  "clientInfo": {"name": "TV-Radar-65", "version": "1.0"}
+              }
+          })
+          if init.get("error"):
+              raise RuntimeError(json.dumps(init["error"], ensure_ascii=False))
+
+          call({"jsonrpc": "2.0", "method": "notifications/initialized",
+                "params": {}}, sid)
+
+          queries = [
+              "TCL C7L", "TCL C7K", "TCL C6K",
+              "LG OLED C5", "LG OLED B5",
+              "Samsung OLED S90", "Samsung OLED S95", "Hisense U8"
+          ]
+
+          for n, query in enumerate(queries, 2):
+              print("\n" + "=" * 65 + "\nBUSCA: " + query)
+              try:
+                  data, sid = call({
+                      "jsonrpc": "2.0", "id": n, "method": "tools/call",
+                      "params": {"name": "search_deals",
+                                 "arguments": {"query": query, "limit": 10}}
+                  }, sid)
+                  result = data.get("result", data)
+                  structured = result.get("structuredContent")
+                  if structured is not None:
+                      print(json.dumps(structured, ensure_ascii=False, indent=2))
+                  else:
+                      for item in result.get("content", []):
+                          if item.get("type") == "text":
+                              print(item.get("text", ""))
+                      if result.get("isError"):
+                          print("A ferramenta retornou erro.")
+              except Exception as e:
+                  print("ERRO:", type(e).__name__, str(e))
+
+          print("\nFim da consulta. Validar código exato e tamanho antes de incluir ofertas.")
+          PY
