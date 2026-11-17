@@ -30,7 +30,7 @@ jobs:
           HEADERS = {
               "Content-Type": "application/json",
               "Accept": "application/json, text/event-stream",
-              "User-Agent": "TV-Radar-65/1.2"
+              "User-Agent": "TV-Radar-65/1.3"
           }
 
           def call(payload, sid=None):
@@ -61,7 +61,7 @@ jobs:
               "params": {
                   "protocolVersion": "2025-11-25",
                   "capabilities": {},
-                  "clientInfo": {"name": "TV-Radar-65", "version": "1.2"}
+                  "clientInfo": {"name": "TV-Radar-65", "version": "1.3"}
               }
           })
           if init.get("error"):
@@ -136,26 +136,32 @@ jobs:
                           "url": "https://pechincha.ai/p/402c08b4-0b03-42e0-b9fb-eb2c05ef27d0/smart-tv-65-tcl-4k-uhd-sqd-mini-led-65c7l-google-tv-2026",
                           "dealId": "402c08b4-0b03-42e0-b9fb-eb2c05ef27d0",
                           "publishedAt": "2026-11-13T12:21:59.094Z",
-                          "collectedAt": "2026-11-16T00:00:00Z"
+                          "collectedAt": None,
+                          "recordType": "initial_reference"
                       },
                       {
                           "modelId": "c6k",
                           "title": "TCL C6K 65 polegadas",
                           "price": 3869,
                           "store": "AliExpress",
-                          "url": "https://pechincha.ai/p/ab961117-7683-4da6-9cb1-3046c22e73d0/smart-tv-65-tcl-4k-uhd-miniled-65c6k-120hz-google-tv",
+                          "url": "https://pechincha.ai/p/ab961117-7683-4da6-9cb1-3046c22e73d0/smart-tv-65-4k-uhd-miniled-65c6k-120hz-google-tv",
                           "dealId": "ab961117-7683-4da6-9cb1-3046c22e73d0",
                           "publishedAt": "2026-11-11T12:37:16.188Z",
-                          "collectedAt": "2026-11-16T00:00:00Z"
+                          "collectedAt": None,
+                          "recordType": "initial_reference"
                       }
                   ]
               }
 
-          existing = {
-              (r.get("dealId"), r.get("price"), r.get("modelId"))
-              for r in data.get("records", [])
-          }
+          # Identifica os registros iniciais sem alterar snapshots já coletados.
+          for record in data.get("records", []):
+              if "recordType" not in record:
+                  record["recordType"] = "initial_reference"
+              if record.get("collectedAt") == "2026-11-16T00:00:00Z":
+                  record["collectedAt"] = None
 
+          collected_at = datetime.now(timezone.utc).isoformat()
+          seen_this_run = set()
           request_id = 2
           added = 0
 
@@ -195,10 +201,12 @@ jobs:
                           continue
 
                       deal_id = str(deal.get("id") or deal.get("url") or title)
-                      key = (deal_id, price, model_id)
 
-                      if key in existing:
+                      # Evita repetir a mesma oferta entre as consultas desta execução.
+                      key = (deal_id, model_id)
+                      if key in seen_this_run:
                           continue
+                      seen_this_run.add(key)
 
                       data["records"].append({
                           "modelId": model_id,
@@ -208,20 +216,20 @@ jobs:
                           "url": deal.get("url") or "",
                           "dealId": deal_id,
                           "publishedAt": deal.get("published_at") or deal.get("published_date"),
-                          "collectedAt": datetime.now(timezone.utc).isoformat()
+                          "collectedAt": collected_at,
+                          "recordType": "snapshot"
                       })
-                      existing.add(key)
                       added += 1
 
                   page += 1
 
-          data["lastUpdated"] = datetime.now(timezone.utc).isoformat()
+          data["lastUpdated"] = collected_at
           path.write_text(
               json.dumps(data, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8"
           )
 
-          print("Novos registros:", added)
+          print("Novos snapshots:", added)
           print("Total no histórico:", len(data["records"]))
           print("Última coleta:", data["lastUpdated"])
           PY
@@ -232,7 +240,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add public/data/price-history.json
           if git diff --cached --quiet; then
-            echo "Nenhuma nova oferta."
+            echo "Nenhuma alteração no histórico."
           else
             git commit -m "Atualiza histórico de preços TV Radar"
             git push
