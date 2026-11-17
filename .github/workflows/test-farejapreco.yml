@@ -1,72 +1,70 @@
 
-name: Discover TV Catalog
+name: Check TV Prices
 
 on:
   workflow_dispatch:
 
 jobs:
-  discover:
+  prices:
     runs-on: ubuntu-latest
     steps:
-      - name: Search broader TV model names
+      - name: Check selected TVs
         run: |
           python - <<'PY'
           import json
-          import time
-          import urllib.parse
           import urllib.request
+          import urllib.parse
 
-          queries = [
-              "TCL C7L 65",
-              "TCL 65 C7L",
-              "TCL C7K 65 Mini LED",
-              "TCL C6K 65 Mini LED",
-              "LG OLED C6 65",
-              "LG OLED C5 65",
-              "Samsung OLED S90H 65",
-              "Samsung OLED S95H 65",
-              "Samsung Neo QLED Mini LED 65",
-              "Hisense U8 65 Mini LED",
-          ]
+          products = {
+              "TCL C7L 65": "mercadolivre-MLB74127412",
+              "TCL C7K 65": "mercadolivre-MLB49823182",
+              "TCL C6K 65": "mercadolivre-MLB50368907",
+          }
 
-          base = "https://farejapreco.com.br/api/v1/produtos"
+          base = "https://farejapreco.com.br/api/v1/produtos/"
 
-          for i, query in enumerate(queries):
-              if i:
-                  time.sleep(7)
-
-              url = base + "?" + urllib.parse.urlencode({
-                  "q": query,
-                  "limite": 10,
-                  "ordenar": "relevancia"
-              })
-
-              print("\n===== BUSCA: " + query + " =====")
+          for name, product_id in products.items():
+              print("\n===== " + name + " =====")
 
               try:
+                  url = base + product_id
                   req = urllib.request.Request(
                       url,
                       headers={"User-Agent": "TV-Radar-65/1.0"}
                   )
-                  with urllib.request.urlopen(req, timeout=30) as response:
-                      data = json.load(response)
 
-                  print("RESULTADOS:", data.get("count", 0))
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      data = json.load(r)
 
-                  for item in data.get("items", []):
-                      print(json.dumps({
-                          "id": item.get("id"),
-                          "product": item.get("product"),
-                          "brand": item.get("brand"),
-                          "model": item.get("model"),
-                          "store": item.get("store"),
-                          "price_status": item.get("price_status"),
-                          "product_url": item.get("product_url")
-                      }, ensure_ascii=False))
+                  fields = [
+                      "id", "product", "brand", "model",
+                      "store", "price_status", "price",
+                      "lowest_price", "lowest_price_store",
+                      "price_checked_at", "verdict",
+                      "lowest_30d", "highest_30d",
+                      "typical_30d", "price_history",
+                      "price_history_url", "product_url"
+                  ]
 
-                  if not data.get("items"):
-                      print("Nenhuma correspondência.")
+                  print(json.dumps(
+                      {k: data.get(k) for k in fields},
+                      ensure_ascii=False,
+                      indent=2
+                  ))
 
-              except Exception as exc:
-                  print("ERRO:", type(exc).__name__, str(exc))
+                  history_url = data.get("price_history_url")
+
+                  if history_url:
+                      with urllib.request.urlopen(
+                          history_url + "?dias=30", timeout=30
+                      ) as r:
+                          history = json.load(r)
+
+                      print("HISTÓRICO 30 DIAS:")
+                      print(json.dumps(
+                          history, ensure_ascii=False
+                      )[:2500])
+
+              except Exception as e:
+                  print("ERRO:", type(e).__name__, str(e))
           PY
