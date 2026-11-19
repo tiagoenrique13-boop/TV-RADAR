@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "lastUpdated": "2026-11-18T21:51:45.594101+00:00",
+  "lastUpdated": "2026-11-19T13:08:53.966798+00:00",
   "records": [
     {
       "modelId": "c7l",
@@ -154,6 +154,17 @@
       "dealId": "402c08b4-0b03-42e0-b9fb-eb2c05ef27d0",
       "publishedAt": "2026-11-13T12:21:59.094Z",
       "collectedAt": "2026-11-18T21:51:45.594101+00:00",
+      "recordType": "snapshot"
+    },
+    {
+      "modelId": "c7l",
+      "title": "Smart TV 65\" TCL 4K UHD SQD-Mini LED 65C7L Google TV 2026",
+      "price": 5999.0,
+      "store": "AliExpress",
+      "url": "https://pechincha.ai/p/402c08b4-0b03-42e0-b9fb-eb2c05ef27d0/smart-tv-65-tcl-4k-uhd-sqd-mini-led-65c7l-google-tv-2026",
+      "dealId": "402c08b4-0b03-42e0-b9fb-eb2c05ef27d0",
+      "publishedAt": "2026-11-13T12:21:59.094Z",
+      "collectedAt": "2026-11-19T13:08:53.966798+00:00",
       "recordType": "snapshot"
     }
   ]
